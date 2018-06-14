@@ -1,0 +1,4 @@
+"STARTUP.obj",
+"cstj.obj" 
+TO "cstj" 
+RAMSIZE(256) 

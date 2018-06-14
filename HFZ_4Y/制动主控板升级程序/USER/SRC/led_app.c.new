@@ -1,0 +1,60 @@
+/****************************************************************************
+* 文件名: led_APP.c
+* 文件历史:
+* 版本号  日期       作者    说明
+* v0.1    2016-5-19 
+*****************************************************************************/
+#include "includes.h"
+void LED_config(void)
+{
+    GPIO_InitTypeDef GPIO_InitStructure;
+    RCC_APB2PeriphClockCmd(RCC_GPIO_LED |RCC_GPIO_sysLED| RCC_APB2Periph_AFIO , ENABLE); 
+    GPIO_InitStructure.GPIO_Pin = GPIO_LED_ALL;
+    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
+    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_Out_PP;
+    GPIO_Init(GPIO_LED_PORT, &GPIO_InitStructure);
+    GPIO_InitStructure.GPIO_Pin = GPIO_SYSLED;
+    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
+    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_Out_PP;
+    GPIO_Init(GPIO_LED_sysPORT, &GPIO_InitStructure);
+}
+
+void LED1_config(void)
+{
+    GPIO_InitTypeDef GPIO_InitStructure;
+    RCC_APB2PeriphClockCmd(RCC_GPIO_LED |RCC_GPIO_sysLED| RCC_APB2Periph_AFIO , ENABLE);  //RCC_APB2Periph_AFIO
+    GPIO_InitStructure.GPIO_Pin = GPIO_LED_ALL;
+    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
+    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_Out_PP;
+    GPIO_Init(GPIO_LED_PORT, &GPIO_InitStructure);
+    GPIO_InitStructure.GPIO_Pin = GPIO_SYSLED;
+    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
+    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_Out_PP;
+    GPIO_Init(GPIO_LED_sysPORT, &GPIO_InitStructure);
+}
+
+/****************************************************************************
+* 名    称：void LED_Spark(void)
+* 功    能：控制系统指示灯
+* 入口参数：无
+* 出口参数：无
+* 说    明：调用 static void SYSLed_Turn_off(u8 sta)函数
+* 调用方法：外部定时调用
+****************************************************************************/ 
+void LED1_on(void)
+{
+    GPIO_ResetBits(GPIO_LED_PORT,GPIO_LED1);
+}
+
+/****************************************************************************
+* 名    称：void LED_Spark(void)
+* 功    能：控制系统指示灯
+* 入口参数：无
+* 出口参数：无
+* 说    明：调用 static void SYSLed_Turn_off(u8 sta)函数
+* 调用方法：外部定时调用
+****************************************************************************/ 
+void LED1_off(void)
+{
+    GPIO_SetBits(GPIO_LED_PORT,GPIO_LED1);	
+}

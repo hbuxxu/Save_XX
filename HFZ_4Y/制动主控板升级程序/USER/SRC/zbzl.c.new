@@ -1,0 +1,138 @@
+#include "stm32f10x.h"
+#include <string.h>
+#include "ZBZL.h"
+#include "W5500.h"
+#include "spi_flash.h"
+unsigned char  W5500_Test_LRC[2];
+u8 ZBZL_Buffer[150]; 
+union  Type_Un1 Load_unPdata;
+union  Type_Un2	Load_unEWdata;
+union adb Load_unEDdata;	
+u8  Arry_Index[3]; 
+FunctionalState    System_Flag;
+FunctionalState    S_Err4_Flag;
+/*****************************************************************************************/
+void Load_Sys_Data(u8 CH)
+{ 
+    if(SPI_FLASH_TBufferRead(Load_unEWdata.Load_EWdata,(ZBZL_u32E_Address0+CH*22), 22)==0)
+    ;
+    else
+    ;          
+}
+/***********************************************************************************/
+void load_P_Data(void)     
+{
+    if(SPI_FLASH_TBufferRead(Load_unPdata.Load_Pdata, ZBZL_u32P_Address0, 23)==0)
+    ;
+    else
+    ;    
+}
+/******************************************************
+返回数据函数，包含返回命令字符
+*****************************************************/
+void Return_Data(unsigned char Err_Flag, unsigned char *dat_ptr, unsigned short size)
+{
+    unsigned short size2,size3,i,j;
+    char Master_Address=0x81;
+    char X_LRC;
+    unsigned char  Xrep_Err[180];      
+    Xrep_Err[0]=0x02;                
+    Xrep_Err[1]=Master_Address;    
+    size2=size+1;
+    size3=size+3;
+    Xrep_Err[2]=size2&0XFF;
+    Xrep_Err[3]=(size2>>8)&0XFF;		 
+    Xrep_Err[4]=Err_Flag;
+    j=5;
+    if(size!=0)
+    {
+        for(i=0;i<size;i++,j++)
+        {
+            Xrep_Err[j]=(*dat_ptr++);
+        }
+    }
+    size3=size+5; 
+    X_LRC=LRC(Xrep_Err,size3); 
+    Xrep_Err[size+5]=X_LRC;
+    size2=size+6;	 
+    Xrep_Err[size2]=0X03;
+    size2=size+7;
+    memcpy(W5500_Tx_Buffer, Xrep_Err, size2);
+    Write_SOCK_Data_Buffer(0, Xrep_Err,size2);
+}
+
+LRC(unsigned char*pData,unsigned short nLength)
+{
+    unsigned char uchLRC=0;
+    int i;
+    for(i=1;i<nLength;i++)
+    {
+        uchLRC+=pData[i];
+    }
+    return uchLRC;
+}
+
+/*****************************************************************************************
+数据保护
+*****************************************************************************************/
+
+int u8_ncmp(u8 *data1,u8 *data2,u8 n)
+{
+    u8 i,j;
+    i=0;
+    for(j=0;j<n;j++)
+    {
+        if((data1[j])!=(data2[j]))
+        i=1;
+    }
+    return(i);
+}		 
+
+
+void SPI_FLASH_3SectorErase(uint32_t Address)
+{
+    SPI_FLASH_SectorErase(Address);	
+    Address+=65536;
+    SPI_FLASH_SectorErase(Address);	
+    Address+=65536;
+    SPI_FLASH_SectorErase(Address);	
+}
+
+
+void SPI_FLASH_3BufferWrite(u8* pBuffer, u32 WriteAddr, u16 NumByteToWrite)
+{
+    SPI_FLASH_BufferWrite(pBuffer, WriteAddr, NumByteToWrite);
+    WriteAddr+=65536;
+    SPI_FLASH_BufferWrite(pBuffer, WriteAddr, NumByteToWrite);
+    WriteAddr+=65536;
+    SPI_FLASH_BufferWrite(pBuffer, WriteAddr, NumByteToWrite);
+}
+
+int SPI_FLASH_TBufferRead(u8* pBuffer, u32 ReadAddr, u8 NumByteToRead)
+{
+    u8 *ip0,*ip1;
+    u8 i;
+    u8 StoreAddr0[80],StoreAddr1[80],StoreAddr2[80];
+    i=0;
+    ip0=&StoreAddr0[0];
+    SPI_FLASH_BufferRead(ip0,(ReadAddr+0), NumByteToRead);  
+    ip1=&StoreAddr1[0];
+    SPI_FLASH_BufferRead(ip1,(ReadAddr+65536), NumByteToRead); 
+    ip1=&StoreAddr2[0];
+    SPI_FLASH_BufferRead(ip1,(ReadAddr+131072), NumByteToRead);
+    if(u8_ncmp(StoreAddr0,StoreAddr1,NumByteToRead)==0) 
+    memcpy(pBuffer,StoreAddr0, NumByteToRead);   
+    else if(u8_ncmp(StoreAddr0,StoreAddr2,NumByteToRead)==0)
+    memcpy(pBuffer,StoreAddr0, NumByteToRead);	
+    else if(u8_ncmp(StoreAddr1,StoreAddr2,NumByteToRead)==0)
+    memcpy(pBuffer,StoreAddr1, NumByteToRead);		
+    /******************************************************************** 
+    添加数据存取故障标志位职位指令
+    *********************************************************************/
+    else
+    {
+        S_Err4_Flag=ENABLE;
+        i=1;	
+    }					
+    return(i);				
+}

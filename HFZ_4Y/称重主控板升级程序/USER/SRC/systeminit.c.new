@@ -1,0 +1,35 @@
+#include "stm32f10x.h"
+#include "stm32f10x_spi.h"				
+#include "W5500.h"	
+#include "sys_delay.h"
+#include "systemInit.h"
+//#include "AD7763_APP.h"
+/* Includes ------------------------------------------------------------------*/
+#include "includes.h"
+
+unsigned int clockTick;
+
+void sys_set_ms(void)
+{
+    clockTick++;
+}
+
+unsigned int sys_get_ms(void)
+{
+    return clockTick;
+}
+
+typedef struct _timers_info 
+{
+    unsigned int timer;
+    unsigned int timer_interval;
+    void (*timer_func)(void);
+}
+timers_info;
+
+
+
+void SysTick_Handler(void)
+{
+    sys_set_ms();
+}

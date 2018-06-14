@@ -1,0 +1,4 @@
+".\output\STARTUP.obj",
+".\output\cstj.obj" 
+TO ".\output\cstj" 
+PRINT(".\cstj.m51") RAMSIZE(256) 

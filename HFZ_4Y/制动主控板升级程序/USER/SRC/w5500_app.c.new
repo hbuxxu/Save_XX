@@ -1,0 +1,651 @@
+#include "includes.h"
+#include "SysCommandProcess.h"
+#include "ZBZL.h"
+#include "spi_flash.h"
+#include "sys_delay.h"
+#include "common.h"
+#include "stm32f10x_flash.h"
+#define GGPIO_RESETSYSPARA_PORT             GPIOE
+#define GPIO_RESETSYSPARA                   GPIO_Pin_0 
+unsigned char Flash_Rx_Buffer[2048];
+u16 Upgrade=0;
+u16 Number_Data,Flash_Page;
+uint32_t WFlashDestination = ApplicationAddress;
+uint16_t WPageSize = PAGE_SIZE;
+uint32_t FramSource;
+int LED_MARK=0;
+unsigned char tFramSource;
+
+uint32_t FflashDestination = ApplicationAddress;
+FLASH_Status WFLASHStatus = FLASH_COMPLETE;
+unsigned  char *Wip,*Fip;
+
+uint8_t *Ramip;
+typedef union
+{
+    unsigned char 	Load_Cdata[6];
+    struct 
+    {
+        unsigned char Opc[1];           //0通道模拟量量电压值
+        u16  Bl_Er;           //0通道测量值
+        unsigned char Null[2];	         //1通道模拟量量电压值
+        unsigned char Zero;	         //1通道测量值
+    }
+    Load_Stdata;
+}
+ACK_CharTypeDef;
+
+typedef union
+{
+    uint32_t 	Load_Cdata;
+    struct 
+    {
+        uint8_t ads[1024];
+    }
+    Stdata;
+}
+DataDef;
+
+typedef union
+{
+    uint32_t 	long32;
+    struct 
+    {
+        unsigned char short8[4];
+    }
+    Stdata;
+}
+Dataef;		
+Dataef  asc;
+DataDef afs;
+ACK_CharTypeDef ACK_Answer;
+void Load_Net_Parameters(void);				
+uint32_t FLASH_Read_Word(uint32_t address)	
+{
+    return(*(__IO uint32_t*)address);
+}
+
+
+/****************************************************************************
+* 名    称：void Pin_Get_Resetsystatus(u8 *psta)
+* 功    能：获取s1按键状态
+* 入口参数：u8 *psta 
+* 出口参数： *psta 状态
+* 说    明：
+* 调用方法：无 
+****************************************************************************/
+void Pin_Get_Resetsystatus(u8 *psta)
+{
+    *psta  = (GPIO_ReadInputDataBit(GGPIO_RESETSYSPARA_PORT,GPIO_RESETSYSPARA)&0x01);
+}
+
+
+/*******************************************************************************
+* 函数名  : w5500_Load_Net_SYSParameters
+* 描  述  : 装载网络参数
+* 输  入  : 无
+* 输  出  : 无
+* 返回值  : 无
+* 说  明  : 网关、掩码、物理地址、本机IP地址、端口号、目的IP地址、
+* 					目的端口号、端口工作模式
+*******************************************************************************/
+void w5500_Load_Net_SYSParameters(void)
+{
+    Load_Net_Parameters();
+}
+
+/*******************************************************************************
+* 函数名  : Load_Net_Parameters
+* 描  述  : 装载网络参数
+* 输  入  : 无
+* 输  出  : 无
+* 返回值  : 无
+* 说  明  : 网关、掩码、物理地址、本机IP地址、端口号、目的IP地址、
+* 					目的端口号、端口工作模式
+*******************************************************************************/
+void Load_Net_Parameters(void)
+{
+    u8 System_Data[23];
+    u8 *ip;
+    u8 Data_Address;
+    u8 l_ucresetpara=1;      //读取 reset引脚
+    u8 l_ucresetpara_bak=1;  //读取 reset引脚
+    
+    
+    
+    
+    System_Flag=DISABLE;
+    Pin_Get_Resetsystatus(&l_ucresetpara);
+    //  delay_ms(100);
+    Pin_Get_Resetsystatus(&l_ucresetpara_bak);
+    if(l_ucresetpara!=l_ucresetpara_bak) 
+    {
+        l_ucresetpara = 0xff;
+    }
+    
+    if(l_ucresetpara==0x00)  //恢复出厂设置
+    {
+        System_Flag=ENABLE; 
+    }
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    // if(System_Flag==ENABLE)
+    if(1)
+    {
+        Gateway_IP[0]=192; //加载网关参数
+        Gateway_IP[1]=168;
+        Gateway_IP[2]=148;
+        Gateway_IP[3]=1;
+        
+        Sub_Mask[0]=255;     //加载子网掩码
+        Sub_Mask[1]=255;
+        Sub_Mask[2]=255;
+        Sub_Mask[3]=0;
+        
+        Phy_Addr[0]=0x00;    //加载物理地址
+        Phy_Addr[1]=0x0C;
+        Phy_Addr[2]=0x29;
+        Phy_Addr[3]=0x7D;
+        Phy_Addr[4]=0x64;
+        Phy_Addr[5]=0x01;
+        
+        IP_Addr[0]=192;      //加载本机IP地址
+        IP_Addr[1]=168;
+        IP_Addr[2]=148;
+        IP_Addr[3]=222;
+        
+        S0_Port[0]=0xC3;   //加载端口0的端口号5000 13 88
+        S0_Port[1]=0x50;
+        
+        S0_DIP[0]=192;      //加载端口0的目的IP地址
+        S0_DIP[1]=168;
+        S0_DIP[2]=148;
+        S0_DIP[3]=201;
+        S0_DPort[0]=0x1F;//加载端口0的目的端口号6000
+        S0_DPort[1]=0x90;
+        System_Flag=DISABLE;
+    }
+    else
+    { 
+        ip=&System_Data[0];
+        //SPI_FLASH_BufferRead(ip, ZBZL_u32P_Address0, 23); 
+        
+        if(SPI_FLASH_TBufferRead(ip, ZBZL_u32P_Address0, 23)==0)
+        ;
+        else
+        ;         
+        
+        Data_Address=3;		
+        
+        
+        IP_Addr[0]=System_Data[Data_Address++];      //加载本机IP地址
+        IP_Addr[1]=System_Data[Data_Address++];
+        IP_Addr[2]=System_Data[Data_Address++];
+        IP_Addr[3]=System_Data[Data_Address++];
+        
+        
+        Gateway_IP[0]=System_Data[Data_Address++]; //加载网关参数
+        Gateway_IP[1]=System_Data[Data_Address++];
+        Gateway_IP[2]=System_Data[Data_Address++];
+        Gateway_IP[3]=System_Data[Data_Address++];
+        
+        Sub_Mask[0]=System_Data[Data_Address++];     //加载子网掩码
+        Sub_Mask[1]=System_Data[Data_Address++];
+        Sub_Mask[2]=System_Data[Data_Address++];
+        Sub_Mask[3]=System_Data[Data_Address++];
+        
+        S0_Port[1]=System_Data[Data_Address++];  
+        S0_Port[0]=System_Data[Data_Address++];
+        
+        Phy_Addr[0]=0x00;    //加载物理地址
+        Phy_Addr[1]=0x0C;
+        Phy_Addr[2]=0x29;
+        Phy_Addr[3]=0x7D;
+        Phy_Addr[4]=0x64;
+        Phy_Addr[5]=0x01;
+        
+        
+        S0_DIP[0]=192;      //加载端口0的目的IP地址
+        S0_DIP[1]=168;
+        S0_DIP[2]=148;
+        S0_DIP[3]=201;
+        
+        //S0_DPort[0] = 0xEA;//加载端口0的目的端口号6000
+        S0_DPort[0]=0x1F;//加载端口0的目的端口号6000
+        S0_DPort[1]=0x90;
+        
+    }
+    S0_Mode=TCP_SERVER;//加载端口0的工作模式,TCP客户端模式
+}
+
+/*******************************************************************************
+* 函数名  : W5500_Initialization
+* 描  述  : W5500初始化
+* 输  入  : 无
+* 输  出  : 无
+* 返回值  : 无
+* 说  明  : 无
+*******************************************************************************/
+void W5500_Initialization(void)
+{
+    W5500_Init();		  //初始化W5500寄存器函数
+    Detect_Gateway();	//检查网关服务器 
+    Socket_Init(0);		//指定Socket(0~7)初始化,初始化端口0
+    
+}
+/*******************************************************************************
+* 函数名  : W5500_Socket_Set
+* 描  述  : W5500端口初始化配置
+* 输  入  : 无
+* 输  出  : 无
+* 返回值  : 无
+* 说  明  : 分别设置4个端口,根据端口工作模式,将端口置于TCP服务器、TCP客户端或UDP模式。
+*			      从端口状态字节Socket_State可以判断端口的工作情况。
+*******************************************************************************/
+void W5500_Socket_Set(void)
+{
+    if(S0_State==0)//端口0初始化配置
+    {
+        if(S0_Mode==TCP_SERVER)//TCP服务器模式 
+        {
+            if(Socket_Listen(0)==TRUE)
+            {
+                S0_State=S_INIT;
+            }
+            else
+            {
+                S0_State=0;
+            }
+        }
+        else if(S0_Mode==TCP_CLIENT)//TCP客户端模式 
+        {
+            if(Socket_Connect(0)==TRUE)
+            {
+                S0_State=S_INIT;
+            }
+            else
+            {
+                S0_State=0;
+            }
+        }
+        else//UDP模式 
+        {
+            if(Socket_UDP(0)==TRUE)
+            {
+                S0_State=S_INIT|S_CONN;
+            }
+            else
+            {
+                S0_State=0;
+            }
+        }
+    }
+}
+/******************************************************************************
+* 函数名  : Process_Socket_Data
+* 描  述  : W5500接收并发送接收到的数据
+* 输  入  : s:端口号
+* 输  出  : 无
+* 返回值  : 无
+* 说  明  : 本过程先调用S_rx_process()从W5500的端口接收数据缓冲区读取数据,
+*			      然后将读取的数据从Rx_Buffer拷贝到Temp_Buffer缓冲区进行处理。
+*			      处理完毕，将数据从Temp_Buffer拷贝到Tx_Buffer缓冲区。
+*			      调用S_tx_process()发送数据。
+*******************************************************************************/
+void Process_Socket_Data(SOCKET s)
+{
+    u8 *ip;
+    u16 j;
+    uint32_t *vaip;
+    
+    unsigned short wSize;
+    unsigned char  ucOrder;
+    uint32_t *val32=((uint32_t*)(&Flash_Rx_Buffer[0]));
+    wSize=Read_SOCK_Data_Buffer(s, W5500_Rx_Buffer);
+    W5500_Test_LRC[0]=W5500_Rx_Buffer[wSize-2];                           
+    W5500_Test_LRC[1]=LRC(W5500_Rx_Buffer,wSize-2);   
+    if((W5500_Test_LRC[0]!=W5500_Test_LRC[1])||(W5500_Rx_Buffer[0]!=2)||(W5500_Rx_Buffer[wSize-1]!=3))           //LRC位判断
+    {
+        Return_Data('Z', ZB_Version, 0); 
+    }
+    else
+    {
+        ucOrder=W5500_Rx_Buffer[4];
+        
+        switch(ucOrder)
+        {
+            case'B':                                                               //获取版本信息                                                                  
+            {
+                Return_Data('B',ZB_Version,13);
+            }
+            break;
+            
+            case'P':                                                        //参数设置命令
+            {
+                if(W5500_Rx_Buffer[5]=='W')                                 //参数写入
+                {
+                    SPI_FLASH_3SectorErase(ZBZL_u32P_Address0);
+                    ip=(&W5500_Rx_Buffer[6]);				
+                    SPI_FLASH_3BufferWrite(ip, ZBZL_u32P_Address0, 23);
+                    ZBZL_Buffer[0]='W';
+                    Return_Data('P',ZBZL_Buffer,1);
+                }
+                if(W5500_Rx_Buffer[5]=='R')                               //参数读取 
+                {
+                    ZBZL_Buffer[0]='R';	
+                    ip=(&ZBZL_Buffer[1]);	
+                    if(SPI_FLASH_TBufferRead(ip, ZBZL_u32P_Address0, 24)==0)
+                    Return_Data('P',ZBZL_Buffer,24);
+                    else
+                    ;
+                    
+                    /*****************************************************************
+                    数据保护验证
+                    ******************************************************************/					
+                    SPI_FLASH_BufferRead(ip, ZBZL_u32P_Address0, 24);
+                    Return_Data('P',ZBZL_Buffer,24);
+                    
+                    SPI_FLASH_BufferRead(ip, ZBZL_u32P_Address1, 24);
+                    Return_Data('P',ZBZL_Buffer,24);
+                    
+                    SPI_FLASH_BufferRead(ip, ZBZL_u32P_Address2, 24);
+                    Return_Data('P',ZBZL_Buffer,24);
+                }
+            }
+            break;
+            
+            case'W':                                                                                             
+            {
+                ucOrder=W5500_Rx_Buffer[5];
+                
+                switch(ucOrder)
+                {
+                    
+                    case'G': 
+                    {
+                        if(Upgrade==2)
+                        {
+                            ACK_Answer.Load_Cdata[0]='K';
+                            ACK_Answer.Load_Stdata.Bl_Er=0;
+                            Upgrade=3;
+                            Return_Data('W',ACK_Answer.Load_Cdata,3);
+                        }
+                        else
+                        Return_Data('E',ZB_Version,0);
+                    }
+                    break;
+                    
+                    case'W': 
+                    {
+                        if(Upgrade==3)
+                        {
+                            Upgrade=4;
+                            Number_Data=0;
+                            Flash_Page=0;
+                            ACK_Answer.Load_Cdata[0]='K';
+                            ACK_Answer.Load_Stdata.Bl_Er=0;
+                            Return_Data('W',ACK_Answer.Load_Cdata,3);
+                        }
+                        else
+                        Return_Data('E',ZB_Version,0);
+                    }
+                    break;
+                    
+                    case'D': 
+                    {
+                        TimeOver_Mark(0);
+                        
+                        if(Upgrade>=4)         //升级步骤
+                        {
+                            if(Upgrade==4)
+                            {
+                                vaip=val32;
+                                Upgrade=5;
+                                FramSource= (uint32_t)(&Flash_Rx_Buffer[0]);	
+                                asc.long32=FflashDestination;
+                            }
+                            /******************************************************************
+                            块号异常
+                            ******************************************************************/					
+                            ACK_Answer.Load_Cdata[1]=W5500_Rx_Buffer[6];
+                            ACK_Answer.Load_Cdata[2]=W5500_Rx_Buffer[7];
+                            if(ACK_Answer.Load_Stdata.Bl_Er!=Number_Data)
+                            {
+                                ACK_Answer.Load_Stdata.Opc[0]='E';
+                                ACK_Answer.Load_Stdata.Bl_Er=4;
+                                ACK_Answer.Load_Stdata.Null[0]=0;
+                                ACK_Answer.Load_Stdata.Null[1]=0;
+                                ACK_Answer.Load_Stdata.Zero=0;
+                                Return_Data('W',ACK_Answer.Load_Cdata,6);	
+                            }
+                            
+                            
+                            else
+                            {
+                                if((wSize-10)==512)   //要求最后发送一组数据为512时在，发一组数据为零的指令。
+                                { 
+                                    Wip=(&W5500_Rx_Buffer[8]);	
+                                    Fip=(&Flash_Rx_Buffer[0]+(Number_Data%4)*512);	
+                                    memcpy(Fip,Wip, 512); 	
+                                    Number_Data+=1;        //接收到的数据包次数?
+                                    if(Number_Data/4>Flash_Page)
+                                    {
+                                        WFLASHStatus = FLASH_ErasePage(WFlashDestination + (WPageSize * Flash_Page));
+                                        while(WFLASHStatus != FLASH_COMPLETE)
+                                        Return_Data('E',ZB_Version,0);
+                                        Flash_Page+=1;        //Flash页?
+                                        /* Flash写入*/	
+                                        vaip=val32;
+                                        for (j = 0; j <WPageSize ; j += 4)
+                                        { 
+                                            WFLASHStatus=FLASH_ProgramWord(FflashDestination, *vaip);
+                                            while(WFLASHStatus!=FLASH_COMPLETE);
+                                            /******************************************************************
+                                            读写异常
+                                            ******************************************************************/		
+                                            if(FLASH_Read_Word(FflashDestination)!=*vaip)
+                                            {
+                                                ACK_Answer.Load_Stdata.Opc[0]='E';
+                                                ACK_Answer.Load_Stdata.Bl_Er=3;
+                                                ACK_Answer.Load_Stdata.Null[0]=0;
+                                                ACK_Answer.Load_Stdata.Null[1]=0;
+                                                ACK_Answer.Load_Stdata.Zero=0;
+                                                Return_Data('W',ACK_Answer.Load_Cdata,6);	
+                                                while(1)
+                                                ;
+                                            }								 
+                                            FflashDestination+=4;
+                                            vaip+=1;	
+                                        }						
+                                    }
+                                    ACK_Answer.Load_Cdata[0]='K';
+                                    ACK_Answer.Load_Cdata[1]=	W5500_Rx_Buffer[6];
+                                    ACK_Answer.Load_Cdata[2]=	W5500_Rx_Buffer[7];
+                                    Return_Data('W',ACK_Answer.Load_Cdata,3);
+                                }
+                                /******************************************************************
+                                长度异常
+                                ******************************************************************/	
+                                else if((wSize-10)>512)
+                                {
+                                    ACK_Answer.Load_Stdata.Opc[0]='E';
+                                    ACK_Answer.Load_Stdata.Bl_Er=2;
+                                    ACK_Answer.Load_Stdata.Null[0]=0;
+                                    ACK_Answer.Load_Stdata.Null[1]=0;
+                                    ACK_Answer.Load_Stdata.Zero=0;
+                                    Return_Data('W',ACK_Answer.Load_Cdata,6);	
+                                }
+                                else
+                                {
+                                    if(((wSize-10)==0)&&(Number_Data==0))
+                                    {
+                                        ;
+                                    }
+                                    else
+                                    {	
+                                        Wip=(&W5500_Rx_Buffer[8]);	
+                                        Fip=((&Flash_Rx_Buffer[0])+(Number_Data%4)*512);	
+                                        memcpy(Fip,Wip,(wSize-10)); 			
+                                        while(FLASH_GetFlagStatus(FLASH_FLAG_BSY)==SET)
+                                        {
+                                            ;
+                                        }
+                                        WFLASHStatus = FLASH_ErasePage(WFlashDestination + (WPageSize * Flash_Page));
+                                        while(WFLASHStatus!=FLASH_COMPLETE);
+                                        vaip=val32;
+                                        for (j = 0; j <((wSize-10)+Number_Data%4*512); j += 4)
+                                        {
+                                            WFLASHStatus=FLASH_ProgramWord(FflashDestination, *vaip);	
+                                            while(WFLASHStatus!=FLASH_COMPLETE);	 
+                                            /******************************************************************
+                                            读写异常
+                                            ******************************************************************/	
+                                            if(FLASH_Read_Word(FflashDestination)!=*vaip)
+                                            {
+                                                ACK_Answer.Load_Stdata.Opc[0]='E';
+                                                ACK_Answer.Load_Stdata.Bl_Er=3;
+                                                ACK_Answer.Load_Stdata.Null[0]=0;
+                                                ACK_Answer.Load_Stdata.Null[1]=0;
+                                                ACK_Answer.Load_Stdata.Zero=0;
+                                                Return_Data('W',ACK_Answer.Load_Cdata,6);	
+                                                while(1)
+                                                ;
+                                            }	
+                                            
+                                            FflashDestination+=4;
+                                            vaip+=1;	
+                                        } 
+                                        TimeOver_Mark(0);
+                                    }
+                                    
+                                    WFLASHStatus = FLASH_ErasePage(2048 * 255);
+                                    while(WFLASHStatus!=FLASH_COMPLETE);
+                                    Upgrade=6;	
+                                    ACK_Answer.Load_Cdata[0]='K';
+                                    ACK_Answer.Load_Cdata[1]=	W5500_Rx_Buffer[6];
+                                    ACK_Answer.Load_Cdata[2]=	W5500_Rx_Buffer[7];
+                                    Return_Data('W',ACK_Answer.Load_Cdata,3);						 
+                                }	
+                            }
+                        }
+                        else
+                        Return_Data('E',ZB_Version,0);	
+                    }
+                    break;
+                    default:
+                    break;
+                }
+            }
+            break;
+            default:
+            break;
+        }
+    }
+}
+/*******************************************************************************
+* 函数名  : 
+* 描  述  : 
+* 输  入  : 无
+* 输  出  : 无
+* 返回值  : 
+* 说  明  : 无
+*******************************************************************************/
+void W5500_Test(void)
+{
+    
+    if((W5500_InitCTR==0)||(W5500_InitCTR==1))
+    {
+        W5500_Hardware_Reset();
+    }
+    
+    if(W5500_InitCTR==2)
+    {
+        W5500_Initialization();		
+        W5500_InitCTR=3;
+        IWDG_Enable();
+    }
+    
+    if(W5500_InitCTR==3)
+    {
+        W5500_Socket_Set();//W5500端口初始化配置
+        
+        if(W5500_Interrupt)//处理W5500中断
+        {
+            W5500_Interrupt_Process();//W5500中断处理程序框架
+        }
+        if((S0_Data & S_RECEIVE) == S_RECEIVE)//如果Socket0接收到数据
+        {
+            Time3_Mark_Zero();
+            S0_Data&=~S_RECEIVE;
+            Process_Socket_Data(0);//W5500数据处理
+        }
+    }
+    if(Upgrade==1)
+    {
+        if(FLASH_Read_Word(2048 * 255)==0X77777777)
+        {
+            Upgrade=2;
+            ACK_Answer.Load_Cdata[0]='K';
+            ACK_Answer.Load_Cdata[1]=	0;
+            ACK_Answer.Load_Cdata[2]=	0;
+            Return_Data('W',ACK_Answer.Load_Cdata,3);
+        }
+        else
+        Upgrade=6;
+    }
+    if(TimeOver_Mark(1)==1)
+    { 
+        LED_MARK+=1;
+        TimeOver_Mark(0);
+        if(LED_MARK%2)
+        {
+            LED1_off();
+            if(LED_MARK==1000)
+            LED_MARK=1;
+        }
+        else
+        LED1_on();
+        
+        
+        
+        if(Upgrade!=7) 
+        {
+            if(Number_Data==0) 
+            {
+                ACK_Answer.Load_Cdata[0]='K';
+                ACK_Answer.Load_Cdata[1]=	0;
+                ACK_Answer.Load_Cdata[2]=	0;
+                Return_Data('W',ACK_Answer.Load_Cdata,3);
+            }
+            else
+            {
+                ACK_Answer.Load_Cdata[0]='K';
+                ACK_Answer.Load_Cdata[1]=	W5500_Rx_Buffer[6];
+                ACK_Answer.Load_Cdata[2]=	W5500_Rx_Buffer[7];
+                Return_Data('W',ACK_Answer.Load_Cdata,3);	
+            }
+        }
+        
+        else
+        {
+            ACK_Answer.Load_Cdata[0]='K';
+            ACK_Answer.Load_Cdata[1]='E';
+            Return_Data('W',ACK_Answer.Load_Cdata,2);	
+        }
+        
+        
+        
+        
+        
+    }
+    //IWDG_ReloadCounter();
+}
+

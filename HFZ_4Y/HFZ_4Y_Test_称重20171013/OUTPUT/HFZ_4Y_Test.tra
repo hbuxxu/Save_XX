@@ -1,0 +1,59 @@
+*** Creating Trace Output File '.\OUTPUT\HFZ_4Y_Test.tra' Ok.
+### Preparing for ADS-LD.
+### Creating ADS-LD Command Line
+### List of Objects: adding '".\output\startup_stm32f10x_hd.o"'
+### List of Objects: adding '".\output\stm32f10x_it.o"'
+### List of Objects: adding '".\output\main.o"'
+### List of Objects: adding '".\output\user_app.o"'
+### List of Objects: adding '".\output\cabrate_computer.o"'
+### List of Objects: adding '".\output\systemerr.o"'
+### List of Objects: adding '".\output\system_stm32f10x.o"'
+### List of Objects: adding '".\output\core_cm3.o"'
+### List of Objects: adding '".\output\misc.o"'
+### List of Objects: adding '".\output\stm32f10x_adc.o"'
+### List of Objects: adding '".\output\stm32f10x_bkp.o"'
+### List of Objects: adding '".\output\stm32f10x_can.o"'
+### List of Objects: adding '".\output\stm32f10x_cec.o"'
+### List of Objects: adding '".\output\stm32f10x_crc.o"'
+### List of Objects: adding '".\output\stm32f10x_dac.o"'
+### List of Objects: adding '".\output\stm32f10x_dbgmcu.o"'
+### List of Objects: adding '".\output\stm32f10x_dma.o"'
+### List of Objects: adding '".\output\stm32f10x_exti.o"'
+### List of Objects: adding '".\output\stm32f10x_flash.o"'
+### List of Objects: adding '".\output\stm32f10x_fsmc.o"'
+### List of Objects: adding '".\output\stm32f10x_gpio.o"'
+### List of Objects: adding '".\output\stm32f10x_i2c.o"'
+### List of Objects: adding '".\output\stm32f10x_iwdg.o"'
+### List of Objects: adding '".\output\stm32f10x_pwr.o"'
+### List of Objects: adding '".\output\stm32f10x_rcc.o"'
+### List of Objects: adding '".\output\stm32f10x_rtc.o"'
+### List of Objects: adding '".\output\stm32f10x_sdio.o"'
+### List of Objects: adding '".\output\stm32f10x_spi.o"'
+### List of Objects: adding '".\output\stm32f10x_tim.o"'
+### List of Objects: adding '".\output\stm32f10x_usart.o"'
+### List of Objects: adding '".\output\stm32f10x_wwdg.o"'
+### List of Objects: adding '".\output\ad7663.o"'
+### List of Objects: adding '".\output\ad7663_app.o"'
+### List of Objects: adding '".\output\user_usart.o"'
+### List of Objects: adding '".\output\flash_spi.o"'
+### List of Objects: adding '".\output\user_io.o"'
+### List of Objects: adding '".\output\user_data.o"'
+### List of Objects: adding '".\output\w5500.o"'
+### List of Objects: adding '".\output\w5500_app.o"'
+### List of Objects: adding '".\user\AES\AES.lib"'
+### ADS-LD Command completed:
+--cpu Cortex-M3 ".\output\startup_stm32f10x_hd.o" ".\output\stm32f10x_it.o" ".\output\main.o" ".\output\user_app.o" ".\output\cabrate_computer.o" ".\output\systemerr.o" ".\output\system_stm32f10x.o" ".\output\core_cm3.o" ".\output\misc.o" ".\output\stm32f10x_adc.o" ".\output\stm32f10x_bkp.o" ".\output\stm32f10x_can.o" ".\output\stm32f10x_cec.o" ".\output\stm32f10x_crc.o" ".\output\stm32f10x_dac.o" ".\output\stm32f10x_dbgmcu.o" ".\output\stm32f10x_dma.o" ".\output\stm32f10x_exti.o" ".\output\stm32f10x_flash.o" ".\output\stm32f10x_fsmc.o" ".\output\stm32f10x_gpio.o" ".\output\stm32f10x_i2c.o" ".\output\stm32f10x_iwdg.o" ".\output\stm32f10x_pwr.o" ".\output\stm32f10x_rcc.o" ".\output\stm32f10x_rtc.o" ".\output\stm32f10x_sdio.o" ".\output\stm32f10x_spi.o" ".\output\stm32f10x_tim.o" ".\output\stm32f10x_usart.o" ".\output\stm32f10x_wwdg.o" ".\output\ad7663.o" ".\output\ad7663_app.o" ".\output\user_usart.o" ".\output\flash_spi.o" ".\output\user_io.o" ".\output\user_data.o" ".\output\w5500.o" ".\output\w5500_app.o" D:\相旭\新仪表\20171120\单机添加握手加密和心跳指令\添加看门狗\HFZ_4Y_Test_称重20171013\user\AES\AES.lib 
+--library_type=microlib --strict --scatter ".\OUTPUT\HFZ_4Y_Test.sct" 
+--summary_stderr --info summarysizes --map --xref --callgraph --symbols 
+--info sizes --info totals --info unused --info veneers 
+ --list ".\LISTING\HFZ_4Y_Test.map" -o .\OUTPUT\HFZ_4Y_Test.axf### Preparing Environment (PrepEnvAds)
+### ADS-LD Output File: '.\OUTPUT\HFZ_4Y_Test.axf'
+### ADS-LD Command File: '.\OUTPUT\HFZ_4Y_Test.lnp'
+### Checking for dirty Components...
+### Creating CmdFile '.\OUTPUT\HFZ_4Y_Test.lnp', Handle=0x00000FEC
+### Writing '.lnp' file
+### ADS-LD Command file '.\OUTPUT\HFZ_4Y_Test.lnp' is ready.
+### ADS-LD: About to start ADS-LD Thread.
+### ADS-LD: executed with 0 errors
+### Updating obj list
+### LDADS_file() completed.

@@ -1,0 +1,188 @@
+/****************************************************************************
+* 文件名: main.c
+* 文件历史:
+* 版本号  日期       作者qgk    说明
+* v0.1    2016-5-16 xyq123  创建该文件
+*****************************************************************************/
+/*=================================================================================================================================
+1、日    期：
+地    点：
+修 改 人：
+添加内容：
+版本号:
+2、日    期：
+地    点：
+修 改 人：
+添加内容：
+版本号:
+=================================================================================================================================*/
+#include "common.h" 
+#include "usart.h" 
+//#include "integer.h"         
+//#include "demo.h"        
+#include "sys_delay.h"
+#include "W5500.h"	    
+#include "W5500_app.h"	
+#include "includes.h"
+#include "SysCommandProcess.h"
+#include "ZBZL.h"
+#include <string.h>       
+#include "spi_flash.h"
+#define LED1   GPIO_Pin_10
+#define LED2   GPIO_Pin_11
+#define LED3   GPIO_Pin_12
+/**********************函数定义区******************************/     
+void NVIC_Configuration(void);   
+void Usart_Init(void);
+void FLASH_IO_Init(void);
+void KEY_Configuration(void);
+/**********************变量定义区******************************/    
+
+/**************************************************************
+IAP功能添加
+***************************************************************/
+extern pFunction Jump_To_Application;
+extern uint32_t JumpAddress;
+/*******************************************************************************
+* @函数名称	KEY_Configuration
+* @函数说明   按键初始化
+* @输入参数   无
+* @输出参数   无
+* @返回参数   无
+*******************************************************************************/
+void KEY_Configuration(void)
+{
+    GPIO_InitTypeDef GPIO_InitStructure;
+    RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOE, ENABLE);
+    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IPU;
+    GPIO_InitStructure.GPIO_Pin = GPIO_Pin_0;
+    GPIO_Init(GPIOE, &GPIO_InitStructure); 
+}
+/****************************************************************************
+* 名    称：
+* 功    能：Flash存储初始化
+* 入口参数：无
+* 出口参数：无
+* 说    明：
+* 调用方法：无 
+****************************************************************************/
+void FLASH_IO_Init(void)
+{
+    /*spi接口Flash初始化*/
+    SPI_FLASH_Init();
+}
+/****************************************************************************/
+
+/****************************************************************************/
+void IWDG_QConfiguration(void)
+{
+    IWDG_WriteAccessCmd(IWDG_WriteAccess_Enable);
+    IWDG_SetPrescaler(IWDG_Prescaler_32);
+    IWDG_SetReload(0X7ff);
+    IWDG_ReloadCounter();
+}
+/****************************************************************************
+* 名    称：int main(void)
+* 功    能：主函数
+* 入口参数：无
+* 出口参数：无
+* 说    明：
+* 调用方法：无 
+****************************************************************************/ 
+int main(void)
+{
+    KEY_Configuration() ;	
+    /*定时器2，定时器3，5500外部中断控制*/	
+    NVIC_Configuration();	 
+    /*LED 初始化*/
+    LED_config();        
+    /*串口初始化*/
+    Usart_Init();	   
+    /*Flash存储初始化*/
+    FLASH_IO_Init();  	
+    /*精确Delay延时定时器初始化*/
+    DelayTimerInit_Config();    
+    /*W5500 SPI初始化配置*/
+    W5500_SPI_Configuration(); 
+    /*W5500 GPIO初始化配置*/
+    W5500_GPIO_Configuration();	
+    // IWDG_QConfiguration();
+    /*装载网络参数*/
+    Load_Net_Parameters();
+    /*W5500初始化*/
+    W5500_Initialization();
+    w5_SetVersionnumber();
+    //Flash 解锁
+    FLASH_Unlock();
+    while (1)
+    {  
+        if(Upgrade==0)
+        {
+            SerialPutString("\r\n======================================================================");
+            SerialPutString("\r\n=              **************************                            =");
+            SerialPutString("\r\n=                                                                    =");
+            SerialPutString("\r\n=     In-Application Programming Application  (Version 1.0.0)        =");
+            SerialPutString("\r\n=                                                                    =");
+            SerialPutString("\r\n=                             By QI                                  =");
+            SerialPutString("\r\n======================================================================");
+            SerialPutString("\r\n\r\n");
+            Upgrade=1;
+        }
+        W5500_Test();
+        //否则执行用户程序
+        if(Upgrade==6)
+        {   
+            FLASH_Lock();
+            //判断用户是否已经下载程序，因为正常情况下此地址是栈地址。
+            if (((*(__IO uint32_t*)ApplicationAddress) & 0x2FFE0000 ) == 0x20000000)
+            {		 
+                __disable_irq();
+                SerialPutString("Execute user Program\r\n\n");
+                //跳转至用户代码
+                JumpAddress = *(__IO uint32_t*) (ApplicationAddress + 4);
+                Jump_To_Application = (pFunction) JumpAddress;
+                //初始化用户程序的堆栈指针
+                __set_MSP(*(__IO uint32_t*) ApplicationAddress);
+                Jump_To_Application();
+            }
+            else
+            {
+                SerialPutString(" ert  no user Program\r\n\n");
+                Upgrade=7;
+            }
+        }
+    }
+}
+/****************************************************************************
+* 名    称：void Usart_Init(void)
+* 功    能：串口初始化函数
+* 入口参数：无
+* 出口参数：无
+* 说    明：  添加串口初始化函数
+* 调用方法：
+****************************************************************************/
+void Usart_Init(void)
+{  
+    /*串口1初始化*/
+    Usart1_Init();
+}
+
+/****************************************************************************
+* 名    称：void NVIC_Configuration(void)
+* 功    能：中断源配置函数
+* 入口参数：无
+* 出口参数：无
+* 说    明：
+* 调用方法：无   /核实/
+****************************************************************************/
+void NVIC_Configuration(void)
+{
+    /* 优先级组1 */
+    NVIC_PriorityGroupConfig(NVIC_PriorityGroup_1);	
+    /*定时器3中断源配置*/
+    NVIC_Configuration_TIM3();
+    /*W5500 接收中断引脚中断源配置*/
+    W5500_NVIC_Configuration();	
+}
+
+

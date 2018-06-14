@@ -1,0 +1,787 @@
+C51 COMPILER V9.00   CSTJ                                                                  04/26/2018 18:21:10 PAGE 1   
+
+
+C51 COMPILER V9.00, COMPILATION OF MODULE CSTJ
+OBJECT MODULE PLACED IN .\output\cstj.obj
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE cstj.c LARGE BROWSE INCDIR(C:\Keil_v5\C51\INC\STC;C:\Keil\C51\INC\STC) DEBU
+                    -G OBJECTEXTEND TABS(1) OBJECT(.\output\cstj.obj)
+
+line level    source
+
+   1          /*************************************************
+   2          日  期：20160720（V1.0）
+   3          修改人：相旭
+   4          内  容：三点滤波，趋势判断
+   5          **************************************************
+   6          日  期：20160926（V1.1）还没下发到车间
+   7          修改人：相旭
+   8          内  容：增加标准速度采集值上传，方便工位机检测采集数据是否正常。
+   9          *************************************************
+  10          日  期：201601114（V1.2）
+  11          修改人：相旭
+  12          内  容：板子修改，增加成4个指示灯，
+  13            LD1、LD2指示左右脉冲数据故障（亮为正常，灭为故障）
+  14            LD3、LD4指示左右硬停机软停机先后（亮为硬停机，灭为软停机）
+  15          **************************************************/
+  16          
+  17          
+  18          #include "STC15F2K60S2.h"
+  19          #include "stdio.h"
+  20          #include "absacc.h"
+  21          #include "intrins.h"
+  22          
+  23          #define  High   1   //高电平
+  24          #define  Low    0   //低电平
+  25          
+  26          #define  uint   unsigned int
+  27          #define  ulong  unsigned long 
+  28          #define  uchar  unsigned char
+  29          
+  30          #define FOSC 11059200L           //系统频率
+  31          #define BAUD 115200              //串口波特率
+  32          #define High 1   //不停机
+  33          #define Low 0    //停机
+  34          
+  35          sbit SWL_in  = P3^2;      //左第三滚速度脉冲信号
+  36          sbit SWL_out = P3^5;      //左电机停机信号   0停机   2^6
+  37          sbit SWR_in  = P3^3;      //右第三滚速度脉冲信号
+  38          sbit SWR_out = P3^4;      //右电机停机信号   0停机   P2^7
+  39          sbit SW_cai  = P1^3;      //上位机启动测速停机板信号   原来是1.3
+  40          
+  41          //sbit SW_Led  = P1^4;      //工作状态
+  42          //sbit SW_MOL  = P2^0;      //左灯  LD2
+  43          //sbit SW_MOR  = P2^1;      //右灯  LD3
+  44          
+  45          #define Bright 0   //指示灯亮
+  46          #define Dark 1    //指示灯熄灭
+  47          sbit LED_L_GZ  = P5^5;      //左第三滚筒脉冲数据错误指示灯  LD1
+  48          sbit LED_R_GZ  = P2^0;      //左第三滚筒脉冲数据错误指示灯  LD2
+  49          sbit LED_L_Stop  = P1^5;        //左边硬停机软停机指示   LD4
+  50          sbit LED_R_Stop  = P2^1;        //右边硬停机软停机指示   LD3    P1^4;  20161206
+  51          
+  52          sbit MC_Flg6_24= P1^4;     //6/24脉冲选择位   P1^5;20161206
+  53          sbit HY_tx4 = P1^0;       //滑移率通过跳线设置I/O口 3脚           
+  54          sbit HY_tx3= P1^1;    //4脚
+C51 COMPILER V9.00   CSTJ                                                                  04/26/2018 18:21:10 PAGE 2   
+
+  55          sbit HY_tx2= P1^2;    //5脚
+  56          sbit HY_tx1= P2^5;    //28脚
+  57          
+  58          sbit Lstop=P3^6;    //左边软停机输入
+  59          sbit Rstop=P3^7;    //右边软停机输入
+  60          
+  61          uchar Counter_70ms=0;   //Led发光二极管 闪烁用
+  62          float Hy_sd=0;          //滑移率设定
+  63          #define Hy_sd20 1.25 //20%   1/0.8
+  64          #define Hy_sd22 1.28 //22%
+  65          #define Hy_sd25 1.33 //25%
+  66          #define Hy_sd28 1.39 //28%
+  67          #define Hy_sd30 1.43 //30%
+  68          #define Hy_sd32 1.47 //32%
+  69          #define Hy_sd34 1.52 //34%
+  70          #define Hy_sd35 1.54 //35%
+  71          #define Hy_sd38 1.61 //38%
+  72          #define Hy_sd40 1.67 //40%
+  73          
+  74          #define Hy_sd10 1.12 //10% 滑移率趋势判断停机条件限值
+  75          
+  76          uint Left_t0,Left_t1,Left_t2,Left_linshi,Left_Old,Left_New;
+  77          uint Right_t0,Right_t1,Right_t2,Right_linshi,Right_Old,Right_New;  //连续三点比较下标值
+  78          uchar ucLeft_T0,ucRight_T1;  //实时检测定时器计数值 超过溢出
+  79          
+  80          #define Overtime_Flg6  0x9D//0x4F  40000 超时判断24齿时20000  6孔时40000
+  81          #define Overtime_Flg24 0x4F
+  82          #define Index_Flg24 24     //存储数据标号 6孔的为6 24齿的为24
+  83          #define Index_Flg6 6
+  84          #define OverConstant_24 20000
+  85          #define OverConstant_6  39000
+  86          uchar uc_Overtime_Flg;//6/24选择时使用的超时变量
+  87          uchar uc_Index_Flg;   //6/24选择时使用的存储数据下标变量
+  88          uint  ui_OverConstant;
+  89          
+  90          uint ui_Average_L3,ui_Average_R3; //3点点平滑使用的基准值
+  91          ulong uli_All_L,uli_All_R;  //24点基准值相加和
+  92          
+  93          unsigned char bdata Flag ;               //系统标志,flag为可位寻址对象
+  94          
+  95          sbit  Watch_Flag=  Flag^0;        //用于灯屏提示后，进入记录m1程序的循环
+  96          sbit  Wal_Flag  =  Flag^1;        //左停机标志   ,只是为了提高代码运行效率，若果没有该标志，停机后继续扫描
+             -滑移率，判断停车
+  97          sbit  War_Flag  =  Flag^2;        //右停机标志
+  98          sbit  INT0_Flag =  Flag^3;        //左脉冲下降沿到来触发中断标志
+  99          sbit  INT1_Flag = Flag^4;         //右脉冲下降沿到来触发中断标志  
+ 100          sbit  IE_Flag = Flag^5;           //避免重复开外部中断  
+ 101          sbit  Lstop_Flag = Flag^6;        //左硬停机软停机有效判断标志 1 有效 0无效
+ 102          sbit  Rstop_Flag = Flag^7 ;       //右硬停机软停机有效判断标志
+ 103          
+ 104          
+ 105          uint  LineL,LineR; //记录24个脉冲数组下标变量 
+ 106          //unsigned  char  Mj=0;    //6/24脉冲选择
+ 107          //
+ 108          
+ 109          union       //联合体用于存放第三滚速度值 右脉冲时间
+ 110          {          
+ 111              uint  i_Data;
+ 112              uchar b_Data[2];
+ 113          }uint_m2_Right;
+ 114          
+ 115          union       //联合体用于存放推移时间 左脉冲时间
+C51 COMPILER V9.00   CSTJ                                                                  04/26/2018 18:21:10 PAGE 3   
+
+ 116          {          
+ 117              uint  t_Data;
+ 118              uchar c_Data[2];
+ 119          }uint_m1_Left;
+ 120          
+ 121          uint Left1_buf[24]={0};//左存标准速度使用
+ 122          uint Left2_buf[24]={0};//左存实时检测速度使用
+ 123          uint idata Right1_buf[24]={0};//右存标准速度使用
+ 124          uint idata Right2_buf[24]={0};//右存实时检测速度使用
+ 125          uchar ucLeft_T0_Count,ucRight_T1_Count;//判断异常停机
+ 126          
+ 127          //uint Left_Plus[336]={0};
+ 128          //uint Right_Plus[336]={0};
+ 129          
+ 130          void SendData(unsigned char dat);
+ 131          void fn_Set_Hyl(void); //滑移率设置
+ 132          void fn_Compare24(void);//24齿判断停机算法
+ 133          
+ 134          void main( void ) 
+ 135          {      
+ 136   1      
+ 137   1       uint uc_i;//清零使用
+ 138   1         //定时器、外部中断初始化 
+ 139   1          TMOD = 0x11;    //0001 0001定时器工作在方式1 ，为16位的定时器/计数器
+ 140   1         //设置串口波特率 
+ 141   1       PCON = 0x00;  
+ 142   1          SCON = 0x50;                 //串口工作在方式1，8位可变波特率
+ 143   1       T2L =(65536 - (FOSC/4/BAUD));   //设置波特率重装值
+ 144   1          T2H =(65536 - (FOSC/4/BAUD))>>8;
+ 145   1          AUXR = 0x14;                //T2为1T模式, 并启动定时器2  不分频速度是传统8051的12倍
+ 146   1          AUXR |= 0x01;               //选择定时器2为串口1的波特率发生器
+ 147   1         
+ 148   1          SWL_out=Low; //停机
+ 149   1       SWR_out=Low; //停机  待机状态无法启动，上位机必须有启动信号
+ 150   1       //指示灯初始化均点亮 有故障指示灯熄灭
+ 151   1       LED_L_GZ=Bright;
+ 152   1       LED_R_GZ=Bright;
+ 153   1       LED_L_Stop=Dark; //软停机默认灯灭
+ 154   1       LED_R_Stop=Dark;    //软停机默认灯灭
+ 155   1       IE_Flag=0;
+ 156   1       Watch_Flag=0;          //实时检测和取标准速度状态标志 1 代表实时检测  0取标准速度检测
+ 157   1       Wal_Flag  =  0;          //左停机标志 
+ 158   1       War_Flag  =  0;          //右停机标志
+ 159   1       INT0_Flag =  0;          //左脉冲下降沿到来触发中断标志
+ 160   1       INT1_Flag = 0;           //右脉冲下降沿到来触发中断标志 
+ 161   1       fn_Set_Hyl();
+ 162   1          while(1)
+ 163   1          {  
+ 164   2        TI=1;  //为printf使用
+ 165   2        while((IE_Flag==0)&&(SW_cai==1))//待机状态
+ 166   2        {
+ 167   3         Watch_Flag=1;
+ 168   3         IE_Flag=0;  //待机状态 IE_Flag清零 
+ 169   3         IE=0x00; //关闭所有中断
+ 170   3         INT_CLKO=0x00;//关闭外部中断2 3 只能下降沿中断          
+ 171   3        }  
+ 172   2              while(SW_cai==0) // 取标准速度状态
+ 173   2              { 
+ 174   3                  if(IE_Flag==0)
+ 175   3                  { 
+ 176   4          INT_CLKO=0x30;//开外部中断2、3
+ 177   4          EA=1;//开总中断
+C51 COMPILER V9.00   CSTJ                                                                  04/26/2018 18:21:10 PAGE 4   
+
+ 178   4          for(uc_i=0;uc_i<24;uc_i++)
+ 179   4          {
+ 180   5           Left1_buf[uc_i]=1;
+ 181   5           Left2_buf[uc_i]=1;
+ 182   5           Right1_buf[uc_i]=1;   //保证分母不为0
+ 183   5           Right2_buf[uc_i]=1; 
+ 184   5          }
+ 185   4          SWL_out = High; //待机状态不停机
+ 186   4          SWR_out = High; //不停机
+ 187   4          //指示灯均点亮 测试时有故障指示灯熄灭
+ 188   4          LED_L_GZ=Bright;
+ 189   4          LED_R_GZ=Bright;
+ 190   4          LED_L_Stop=Dark;
+ 191   4          LED_R_Stop=Dark;  //软停机 默认灭
+ 192   4          Wal_Flag=0;           //左停机标志 
+ 193   4          War_Flag=0;              //右停机标志
+ 194   4          INT0_Flag=0;          //左脉冲下降沿到来触发中断标志
+ 195   4          INT1_Flag=0;           //右脉冲下降沿到来触发中断标志  
+ 196   4                      IE_Flag=1;   //保证打开一次就行
+ 197   4          Watch_Flag=1; //取标准速度使用，在外部中断中使用判断存储位置
+ 198   4          Lstop_Flag=0; //左边硬停机软停机标志清零
+ 199   4          Rstop_Flag=0; //右边硬停机软停机标志清零
+ 200   4          LineL=0;
+ 201   4          LineR=0;   //计数下标清0
+ 202   4                      TH0=0X01;          //清0定时器T0，T1，开启T0，T1
+ 203   4                      TL0=0X01;
+ 204   4                      TH1=0X01;          //清0定时器T0，T1，开启T0，T1
+ 205   4                      TL1=0X01;
+ 206   4                      TR1=1;    //开定时器1
+ 207   4          TR0=1;    //开定时器0
+ 208   4          IT0=1;    //外部中断0下降沿中断
+ 209   4          IT1=1;    //外部中断1下降沿中断
+ 210   4                    //  IE=0X85;  //进入测试以后，开外部中断0、1
+ 211   4          IE=0X8F;  //进入取标准速度状态，开总中断  定时器0中断 定时器1中断 外部中断0、1
+ 212   4                  } 
+ 213   3         while(SW_cai==0)
+ 214   3         {
+ 215   4          Watch_Flag=1; //取标准速度使用，在外部中断中使用判断存储位置
+ 216   4          ucLeft_T0=TH0;
+ 217   4          ucRight_T1=TH1;
+ 218   4          if(ucLeft_T0>uc_Overtime_Flg)
+ 219   4          {
+ 220   5           Left1_buf[LineL++]=ui_OverConstant;
+ 221   5           if(LineL>=uc_Index_Flg)
+ 222   5           {
+ 223   6            LineL=0;
+ 224   6           } 
+ 225   5          }
+ 226   4          if(ucRight_T1>uc_Overtime_Flg)
+ 227   4          {
+ 228   5           Right1_buf[LineR++]=ui_OverConstant;
+ 229   5           if(LineR>=uc_Index_Flg)
+ 230   5           {
+ 231   6            LineR=0;
+ 232   6           }
+ 233   5          }
+ 234   4         } 
+ 235   3              } 
+ 236   2        while((IE_Flag==1)&&(SW_cai==1)) //正常测试状态
+ 237   2        {
+ 238   3         Watch_Flag=0; //实时检测状态标志清0 
+ 239   3         if(uc_Index_Flg==Index_Flg24)
+C51 COMPILER V9.00   CSTJ                                                                  04/26/2018 18:21:10 PAGE 5   
+
+ 240   3         {
+ 241   4          //3点平滑处理
+ 242   4          uli_All_L=0;
+ 243   4          uli_All_R=0;
+ 244   4          for(uc_i=0;uc_i<24;uc_i++)
+ 245   4          {
+ 246   5           uli_All_L+=Left1_buf[uc_i];
+ 247   5           if((Left1_buf[uc_i]>10000)||(Left1_buf[uc_i]<6000))   //大于9500时左边灯亮或者小于6000
+ 248   5           {
+ 249   6            //大于9500时左边灯灭或者小于6000
+ 250   6            LED_L_GZ=Dark; 
+ 251   6           }
+ 252   5           uli_All_R+=Right1_buf[uc_i];   //保证分母不为0
+ 253   5           if((Right1_buf[uc_i]>10000)||(Right1_buf[uc_i]<6000))
+ 254   5           {
+ 255   6             //大于9500时右边灯灭或者小于6000
+ 256   6            LED_R_GZ=Dark;
+ 257   6           } 
+ 258   5          }
+ 259   4          ui_Average_L3=uli_All_L/8;
+ 260   4          ui_Average_R3=uli_All_R/8;
+ 261   4          if(ui_Average_L3>30000)
+ 262   4          {
+ 263   5            Wal_Flag=1;//左电机停机标志置位
+ 264   5            EX0=0; //关闭外部中断0
+ 265   5            TR0=0; //定时器0停止计数
+ 266   5            ET0=0; //关定时器0中断
+ 267   5            SWL_out = Low; //左电机停机
+ 268   5            //LED_L_Stop=Bright;  //软硬指示灯 硬停机指示灯亮
+ 269   5          }
+ 270   4          if(ui_Average_R3>30000)
+ 271   4          {
+ 272   5            War_Flag=1;//右电机停机标志置位
+ 273   5            EX1=0; //关闭外部中断1
+ 274   5            TR1=0; //定时器1停止计数
+ 275   5            ET1=0; //关定时器1中断
+ 276   5            SWR_out=Low; //右电机停
+ 277   5            //LED_R_Stop=Bright;  //软硬指示灯 硬停机指示灯亮
+ 278   5          }
+ 279   4      //    for(uc_i=0;uc_i<24;uc_i++)
+ 280   4      //    {
+ 281   4      //     printf("Left1_buf%d=%u\n",uc_i,Left1_buf[uc_i]);
+ 282   4      //     printf("Right1_buf%d=%u\n",uc_i,Right1_buf[uc_i]);
+ 283   4      //    }
+ 284   4      //    printf("ui_Average_L3=%u\n",ui_Average_L3);
+ 285   4      //    printf("ui_Average_R3=%u\n",ui_Average_R3);    
+ 286   4         } 
+ 287   3         if((Lstop_Flag==1)&&(Wal_Flag==1))
+ 288   3         {
+ 289   4           LED_L_Stop=Bright;  //软硬指示灯 硬停机
+ 290   4         }
+ 291   3         if((Rstop_Flag==1)&&(War_Flag==1))
+ 292   3         {
+ 293   4           LED_R_Stop=Bright;  //软硬指示灯 硬停机
+ 294   4         }
+ 295   3         while(Watch_Flag==0)
+ 296   3         {
+ 297   4          if((Lstop_Flag==1)&&(Wal_Flag==0)) //左边硬停机软停机判断
+ 298   4          {
+ 299   5           if(Lstop==1)   //左边软停机起作用
+ 300   5           {
+ 301   6            Wal_Flag=1; 
+C51 COMPILER V9.00   CSTJ                                                                  04/26/2018 18:21:10 PAGE 6   
+
+ 302   6            LED_L_Stop=Dark;  //软停机
+ 303   6            EX0=0; //关闭外部中断0
+ 304   6            TR0=0; //定时器0停止计数
+ 305   6            ET0=0; //关定时器0中断
+ 306   6            SWL_out = Low; //左电机停机  
+ 307   6           } 
+ 308   5          }
+ 309   4          if((Rstop_Flag==1)&&(War_Flag==0)) //右边硬停机软停机判断
+ 310   4          {
+ 311   5           if(Rstop==1)   //右边软停机起作用
+ 312   5           {
+ 313   6            War_Flag=1; 
+ 314   6            LED_R_Stop=Dark;  //软停机
+ 315   6            EX1=0; //关闭外部中断1
+ 316   6            TR1=0; //定时器1停止计数
+ 317   6            ET1=0; //关定时器1中断
+ 318   6            SWR_out=Low; //右电机停  
+ 319   6           } 
+ 320   5          } 
+ 321   4          fn_Compare24(); 
+ 322   4          if((Wal_Flag==1)&&(War_Flag==1))
+ 323   4          {
+ 324   5           Watch_Flag=1;//0实时检测状态  1退出实时检测状态
+ 325   5           IE_Flag=0;  //0检测结束进入待机状态
+ 326   5              Wal_Flag=0;  //左停机标志 
+ 327   5           War_Flag=0;  //右停机标志
+ 328   5           IE=0x00; //关闭所有中断
+ 329   5           INT_CLKO=0x00;//关闭外部中断2 3 
+ 330   5          }
+ 331   4         }
+ 332   3        }
+ 333   2          } 
+ 334   1      }
+ 335          
+ 336          //定时器0的中断函数
+ 337          void Timer0_Interrupt( void ) interrupt 1    //
+ 338          { 
+ 339   1          TF0 = 0;
+ 340   1          if(Watch_Flag==1)//标准速度
+ 341   1       {
+ 342   2        //Left1_buf[LineL++]=60000;
+ 343   2       }
+ 344   1       else //实测速度
+ 345   1       {
+ 346   2        Left2_buf[LineL++]=65500;
+ 347   2       }
+ 348   1       if(LineL>=uc_Index_Flg)
+ 349   1       {
+ 350   2        LineL=0;
+ 351   2       }
+ 352   1      }
+ 353          
+ 354          void Timer1_Interrupt( void ) interrupt 3    //
+ 355          { 
+ 356   1          TF1 = 0;
+ 357   1       if(Watch_Flag==1)
+ 358   1       {
+ 359   2        //Right1_buf[LineR++]=60000;
+ 360   2       }
+ 361   1       else
+ 362   1       {
+ 363   2        Right2_buf[LineR++]=65500;
+C51 COMPILER V9.00   CSTJ                                                                  04/26/2018 18:21:10 PAGE 7   
+
+ 364   2       }
+ 365   1       if(LineR>=uc_Index_Flg)
+ 366   1       {
+ 367   2        LineR=0;
+ 368   2       }
+ 369   1      }
+ 370          
+ 371          //外部中断1，右脉冲 m2 的中断函数  外部脉冲下降沿触发，计数器T0从0开始计数   
+ 372          void INT1_Interrupt( void ) interrupt 2
+ 373          {
+ 374   1          EX1=0;
+ 375   1      // ET1=1;//开定时器1中断
+ 376   1          uint_m2_Right.b_Data[0] = TH1;
+ 377   1          uint_m2_Right.b_Data[1] = TL1;
+ 378   1       if(Watch_Flag==1)//取标准速度状态
+ 379   1       {
+ 380   2        Right1_buf[LineR++]=uint_m2_Right.i_Data; 
+ 381   2        
+ 382   2       }
+ 383   1       else //实时检测判断状态
+ 384   1       {
+ 385   2        Right2_buf[LineR++]=uint_m2_Right.i_Data;
+ 386   2        INT1_Flag=1;//触发中断一次 实时检测比较一次
+ 387   2       }
+ 388   1       if(LineR>=uc_Index_Flg)
+ 389   1       {
+ 390   2        LineR=0;
+ 391   2       }
+ 392   1          TH1=0x01;
+ 393   1          TL1=0x01;
+ 394   1          EX1=1;  
+ 395   1      }
+ 396          
+ 397          void INT0_Interrupt( void ) interrupt 0 //左脉冲 m1
+ 398          {
+ 399   1          EX0=0;
+ 400   1      // ET0=1;//开定时器0中断
+ 401   1          uint_m1_Left.c_Data[0] = TH0;
+ 402   1          uint_m1_Left.c_Data[1] = TL0;
+ 403   1       if(Watch_Flag==1)//标准速度
+ 404   1       {
+ 405   2        Left1_buf[LineL++]=uint_m1_Left.t_Data;
+ 406   2        
+ 407   2       }
+ 408   1       else //实测速度
+ 409   1       {
+ 410   2        Left2_buf[LineL++]=uint_m1_Left.t_Data;
+ 411   2        INT0_Flag=1;//触发中断一次 实时检测比较一次
+ 412   2       }
+ 413   1       if(LineL>=uc_Index_Flg)
+ 414   1       {
+ 415   2        LineL=0;
+ 416   2       } 
+ 417   1          TH0=0x01;
+ 418   1          TL0=0x01;
+ 419   1          EX0=1;
+ 420   1      }
+ 421          //外部中断2 左边硬停机软停机判断
+ 422          void INT2_Interrupt( void ) interrupt 10
+ 423          {
+ 424   1       if(Lstop==0)
+ 425   1       {
+C51 COMPILER V9.00   CSTJ                                                                  04/26/2018 18:21:10 PAGE 8   
+
+ 426   2        Lstop_Flag=1;//硬停机软停机标志有效
+ 427   2        INT_CLKO &= 0xEF;//1110 1111禁止外部中断2
+ 428   2       }  
+ 429   1      }
+ 430          //外部中断3 右边硬停机软停机判断
+ 431          void INT3_Interrupt( void ) interrupt 11
+ 432          {
+ 433   1       if(Rstop==0)
+ 434   1       {
+ 435   2        Rstop_Flag=1;//硬停机软停机标志有效
+ 436   2        INT_CLKO &= 0xDF;//1101 1111禁止外部中断3
+ 437   2       }
+ 438   1      }
+ 439          void SendData(unsigned char dat)
+ 440          {
+ 441   1          SBUF=dat;
+ 442   1          while(!TI);
+ 443   1          TI=0;
+ 444   1      }
+ 445          
+ 446          void fn_Set_Hyl(void) //滑移率设置  6/24齿选择
+ 447          {
+ 448   1       uchar uc_Hyl_Flag=0; 
+ 449   1       if(HY_tx4==1)
+ 450   1       {
+ 451   2        uc_Hyl_Flag|=0x08;
+ 452   2       }
+ 453   1       else
+ 454   1       {
+ 455   2        uc_Hyl_Flag&=0xF7;
+ 456   2       }
+ 457   1       if(HY_tx3==1)
+ 458   1       {
+ 459   2        uc_Hyl_Flag|=0x04;
+ 460   2       }
+ 461   1       else
+ 462   1       {
+ 463   2        uc_Hyl_Flag&=0xFB;
+ 464   2       }
+ 465   1       if(HY_tx2==1)
+ 466   1       {
+ 467   2        uc_Hyl_Flag|=0x02;
+ 468   2       }
+ 469   1       else
+ 470   1       {
+ 471   2        uc_Hyl_Flag&=0xFD;
+ 472   2       }
+ 473   1       if(HY_tx1==1)
+ 474   1       {
+ 475   2        uc_Hyl_Flag|=0x01;
+ 476   2       }
+ 477   1       else
+ 478   1       {
+ 479   2        uc_Hyl_Flag&=0xFE;
+ 480   2       }
+ 481   1       uc_Overtime_Flg=Overtime_Flg24; //6/24选择时使用的超时变量
+ 482   1       uc_Index_Flg=Index_Flg24;       //6/24选择时使用的存储数据下标变量
+ 483   1       ui_OverConstant=OverConstant_24;
+ 484   1       switch(uc_Hyl_Flag)
+ 485   1       {
+ 486   2        case 0x0E://0000 1110
+ 487   2            Hy_sd=Hy_sd20;
+C51 COMPILER V9.00   CSTJ                                                                  04/26/2018 18:21:10 PAGE 9   
+
+ 488   2            break;
+ 489   2        case 0x0C:
+ 490   2            Hy_sd=Hy_sd22;
+ 491   2            break;
+ 492   2        case 0x0D:
+ 493   2            Hy_sd=Hy_sd25;
+ 494   2            break;
+ 495   2        case 0x0A:
+ 496   2            Hy_sd=Hy_sd28;
+ 497   2            break;
+ 498   2           case 0x0B:
+ 499   2            Hy_sd=Hy_sd30;
+ 500   2            break;
+ 501   2        case 0x06:
+ 502   2            Hy_sd=Hy_sd32;
+ 503   2            break;
+ 504   2        case 0x09:
+ 505   2            Hy_sd=Hy_sd34;
+ 506   2            break;
+ 507   2        case 0x07:
+ 508   2            Hy_sd=Hy_sd35;
+ 509   2            break;
+ 510   2           case 0x05:
+ 511   2            Hy_sd=Hy_sd38;
+ 512   2            break;
+ 513   2        case 0x03:
+ 514   2            Hy_sd=Hy_sd40;
+ 515   2            break;
+ 516   2        default:
+ 517   2            Hy_sd=Hy_sd30;
+ 518   2            break;        
+ 519   2       }
+ 520   1      }
+ 521          
+ 522          void fn_Compare24(void)//24齿判断停机算法
+ 523          {
+ 524   1       if(Wal_Flag==0)//未触发停机信号
+ 525   1       {  
+ 526   2        if(INT0_Flag==1)//左脉冲判断
+ 527   2        {
+ 528   3         INT0_Flag=0;
+ 529   3         switch(LineL)  //左电机停机判断
+ 530   3         {
+ 531   4          case 0:
+ 532   4              Left_t0=21;
+ 533   4              Left_t1=22;
+ 534   4              Left_t2=23; //当前值
+ 535   4              break;
+ 536   4             case 1:
+ 537   4              Left_t0=22;
+ 538   4              Left_t1=23;
+ 539   4              Left_t2=0; //当前值
+ 540   4              break;
+ 541   4          case 2:
+ 542   4              Left_t0=23;
+ 543   4              Left_t1=0;
+ 544   4              Left_t2=1; //当前值
+ 545   4              break;
+ 546   4          default:
+ 547   4              Left_t0=LineL-3;
+ 548   4              Left_t1=LineL-2;
+ 549   4                 Left_t2=LineL-1; //当前值
+C51 COMPILER V9.00   CSTJ                                                                  04/26/2018 18:21:10 PAGE 10  
+
+ 550   4              break; 
+ 551   4         }
+ 552   3         Left_linshi=Left2_buf[Left_t2]+Left2_buf[Left_t1]+Left2_buf[Left_t0];
+ 553   3         if(Left_linshi>ui_Average_L3)
+ 554   3         {
+ 555   4          if(((float)Left_linshi/(float)ui_Average_L3)>=Hy_sd) //连续三点达到滑移率则停机 左
+ 556   4          {
+ 557   5            Wal_Flag=1;//左电机停机标志置位
+ 558   5            EX0=0; //关闭外部中断0
+ 559   5            TR0=0; //定时器0停止计数
+ 560   5            ET0=0; //关定时器0中断
+ 561   5            SWL_out = Low; //左电机停机            
+ 562   5          }
+ 563   4         }
+ 564   3         //3点趋势判断
+ 565   3         if(((float)Left2_buf[Left_t2]/(float)Left1_buf[Left_t2])>=Hy_sd)
+ 566   3         {
+ 567   4          if(((float)Left2_buf[Left_t1]/(float)Left1_buf[Left_t1])>((float)Left2_buf[Left_t0]/(float)Left1_buf[L
+             -eft_t0]))
+ 568   4          {
+ 569   5           if(((float)Left2_buf[Left_t1]/(float)Left1_buf[Left_t1])>=Hy_sd10)
+ 570   5           {
+ 571   6            if(((float)Left2_buf[Left_t0]/(float)Left1_buf[Left_t0])>=Hy_sd10)
+ 572   6            {
+ 573   7             Wal_Flag=1;//左电机停机标志置位
+ 574   7             EX0=0; //关闭外部中断0
+ 575   7             TR0=0; //定时器0停止计数
+ 576   7             ET0=0; //关定时器0中断
+ 577   7             SWL_out = Low; //左电机停机
+ 578   7            }
+ 579   6           }
+ 580   5          } 
+ 581   4         }
+ 582   3        }
+ 583   2        else
+ 584   2        {
+ 585   3         uint_m1_Left.c_Data[0] = TH0;
+ 586   3         uint_m1_Left.c_Data[1] = TL0;
+ 587   3         Left2_buf[LineL]=uint_m1_Left.t_Data;
+ 588   3         switch(LineL)  //左电机停机判断
+ 589   3         {
+ 590   4          case 0:
+ 591   4              Left_t0=21;
+ 592   4              Left_t1=22;
+ 593   4              Left_t2=23; //当前值
+ 594   4              break;
+ 595   4             case 1:
+ 596   4              Left_t0=22;
+ 597   4              Left_t1=23;
+ 598   4              Left_t2=0; //当前值
+ 599   4              break;
+ 600   4          case 2:
+ 601   4              Left_t0=23;
+ 602   4              Left_t1=0;
+ 603   4              Left_t2=1; //当前值
+ 604   4              break;
+ 605   4          default:
+ 606   4              Left_t0=LineL-3;
+ 607   4              Left_t1=LineL-2;
+ 608   4                 Left_t2=LineL-1; //当前值
+ 609   4              break; 
+ 610   4         }
+C51 COMPILER V9.00   CSTJ                                                                  04/26/2018 18:21:10 PAGE 11  
+
+ 611   3         Left_linshi=Left2_buf[Left_t2]+Left2_buf[Left_t1]+Left2_buf[LineL];
+ 612   3         if(Left_linshi>ui_Average_L3)
+ 613   3         {
+ 614   4          if(((float)Left_linshi/(float)ui_Average_L3)>=Hy_sd) //连续三点达到滑移率则停机 左
+ 615   4          {
+ 616   5            Wal_Flag=1;//左电机停机标志置位
+ 617   5            EX0=0; //关闭外部中断0
+ 618   5            TR0=0; //定时器0停止计数
+ 619   5            ET0=0; //关定时器0中断
+ 620   5            SWL_out = Low; //左电机停机    
+ 621   5          }
+ 622   4         }
+ 623   3        }
+ 624   2        if((Lstop_Flag==1)&&(Wal_Flag==1))
+ 625   2        {
+ 626   3         LED_L_Stop=Bright;//硬停机先  LD3亮
+ 627   3        }
+ 628   2       }
+ 629   1       if(War_Flag==0)//未触发停机信号
+ 630   1       {
+ 631   2        if(INT1_Flag==1)//右脉冲判断
+ 632   2        {
+ 633   3         INT1_Flag=0;
+ 634   3         switch(LineR)  //右电机停机判断
+ 635   3         {
+ 636   4          
+ 637   4             case 0:
+ 638   4              Right_t0=21;
+ 639   4              Right_t1=22;
+ 640   4              Right_t2=23; //当前值
+ 641   4              break;
+ 642   4             case 1:
+ 643   4              Right_t0=22;
+ 644   4              Right_t1=23;
+ 645   4              Right_t2=0; //当前值
+ 646   4              break;
+ 647   4          case 2:
+ 648   4              Right_t0=23;
+ 649   4              Right_t1=0;
+ 650   4              Right_t2=1; //当前值
+ 651   4              break;
+ 652   4          default:
+ 653   4              Right_t0=LineR-3;
+ 654   4              Right_t1=LineR-2;
+ 655   4                 Right_t2=LineR-1; //当前值
+ 656   4              break; 
+ 657   4         }
+ 658   3         Right_linshi=Right2_buf[Right_t2]+Right2_buf[Right_t1]+Right2_buf[Right_t0];
+ 659   3         if(Right_linshi>ui_Average_R3)
+ 660   3         {
+ 661   4          if(((float)Right_linshi/(float)ui_Average_R3)>=Hy_sd) //连续三点达到滑移率则停机 左
+ 662   4          {
+ 663   5            War_Flag=1;//右电机停机标志置位
+ 664   5            EX1=0; //关闭外部中断1
+ 665   5            TR1=0; //定时器1停止计数
+ 666   5            ET1=0; //关定时器1中断
+ 667   5            SWR_out=Low; //右电机停       
+ 668   5          }
+ 669   4         }
+ 670   3         //3点趋势判断
+ 671   3         if(((float)Right2_buf[Right_t2]/(float)Right1_buf[Right_t2])>=Hy_sd)
+ 672   3         {
+C51 COMPILER V9.00   CSTJ                                                                  04/26/2018 18:21:10 PAGE 12  
+
+ 673   4          if(((float)Right2_buf[Right_t1]/(float)Right1_buf[Right_t1])>((float)Right2_buf[Right_t0]/(float)Right
+             -1_buf[Right_t0]))
+ 674   4          {
+ 675   5           if(((float)Right2_buf[Right_t1]/(float)Right1_buf[Right_t1])>=Hy_sd10)
+ 676   5           {
+ 677   6            if(((float)Right2_buf[Right_t0]/(float)Right1_buf[Right_t0])>=Hy_sd10)
+ 678   6            {
+ 679   7             War_Flag=1;//右电机停机标志置位
+ 680   7             EX1=0; //关闭外部中断1
+ 681   7             TR1=0; //定时器1停止计数
+ 682   7             ET1=0; //关定时器1中断
+ 683   7             SWR_out=Low; //右电机停
+ 684   7            }
+ 685   6           }
+ 686   5          } 
+ 687   4         }
+ 688   3        }
+ 689   2        else
+ 690   2        {
+ 691   3         uint_m2_Right.b_Data[0] = TH1;
+ 692   3         uint_m2_Right.b_Data[1] = TL1;
+ 693   3         Right2_buf[LineR]=uint_m2_Right.i_Data;
+ 694   3         switch(LineR)  //右电机停机判断
+ 695   3         {
+ 696   4          
+ 697   4             case 0:
+ 698   4              Right_t0=21;
+ 699   4              Right_t1=22;
+ 700   4              Right_t2=23; //当前值
+ 701   4              break;
+ 702   4             case 1:
+ 703   4              Right_t0=22;
+ 704   4              Right_t1=23;
+ 705   4              Right_t2=0; //当前值
+ 706   4              break;
+ 707   4          case 2:
+ 708   4              Right_t0=23;
+ 709   4              Right_t1=0;
+ 710   4              Right_t2=1; //当前值
+ 711   4              break;
+ 712   4          default:
+ 713   4              Right_t0=LineR-3;
+ 714   4              Right_t1=LineR-2;
+ 715   4                 Right_t2=LineR-1; //当前值
+ 716   4              break; 
+ 717   4         }
+ 718   3         Right_linshi=Right2_buf[Right_t2]+Right2_buf[Right_t1]+Right2_buf[LineR];
+ 719   3         if(Right_linshi>ui_Average_R3)
+ 720   3         {
+ 721   4          if(((float)Right_linshi/(float)ui_Average_R3)>=Hy_sd)
+ 722   4          {
+ 723   5            War_Flag=1;//右电机停机标志置位
+ 724   5            EX1=0; //关闭外部中断1
+ 725   5            TR1=0; //定时器1停止计数
+ 726   5            ET1=0; //关定时器1中断
+ 727   5            SWR_out=Low; //右电机停机      
+ 728   5          }
+ 729   4         } 
+ 730   3        }
+ 731   2        if((Rstop_Flag==1)&&(War_Flag==1))
+ 732   2        {
+ 733   3         LED_R_Stop=Bright;//硬停机先  LD4亮
+C51 COMPILER V9.00   CSTJ                                                                  04/26/2018 18:21:10 PAGE 13  
+
+ 734   3        }
+ 735   2       }
+ 736   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   3834    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =    153       2
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =      1    ----
+   IDATA SIZE       =     96    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

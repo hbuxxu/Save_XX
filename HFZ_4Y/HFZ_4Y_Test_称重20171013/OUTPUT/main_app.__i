@@ -1,0 +1,5 @@
+-c --cpu Cortex-M3 -D__MICROLIB -g -O0 --apcs=interwork -I.\boot -I.\cmsis -I.\FWLib\inc -I.\user 
+-I C:\Keil_v5\ARM\RV31\INC 
+-I C:\Keil_v5\ARM\CMSIS\Include 
+-I C:\Keil_v5\ARM\Inc\ST\STM32F10x 
+-DUSE_STDPERIPH_DRIVER -DSTM32F10X_HD -o ".\OUTPUT\main_app.o" --omf_browse ".\OUTPUT\main_app.crf" --depend ".\OUTPUT\main_app.d" "user\main_app.c"

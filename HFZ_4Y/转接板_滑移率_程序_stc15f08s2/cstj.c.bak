@@ -1,0 +1,366 @@
+#include<reg51.h>
+#include<stdio.h>
+#include<absacc.h>
+#include<intrins.h>
+#define  High   1   //高电平
+#define  Low    0   //低电平
+
+sfr AUXR	=0X8E;		  //新增寄存器
+				   
+sbit SWL_in  = P3^2;      //左第三滚速度脉冲信号
+sbit SWL_out = P2^6;      //左电机停机信号
+sbit SWR_in  = P3^3;      //右第三滚速度脉冲信号
+sbit SWR_out = P2^7;      //右电机停机信号
+sbit SW_cai  = P1^3;      //上位机启动测速停机板信号   原来是1.3
+sbit SW_Led  = P1^4;      //工作状态
+
+sbit SW_MOL  = P2^0;      //左灯
+sbit SW_MOR  = P2^1;      //右灯
+sbit MC_Xflag= P1^5;     //6/24脉冲选择位
+
+sbit HY_tx4 = P1^0;       //滑移率通过跳线设置I/O口		3脚								   
+sbit HY_tx3= P1^1;									    //4脚
+sbit HY_tx2= P1^2;										//5脚
+sbit HY_tx1= P2^5;									   //28脚
+
+unsigned char Counter_70ms=0; //Led发光二极管 闪烁用
+float Hy_sd=0;                 //滑移率设定
+float Hy_sd20=1.25;//20%
+float Hy_sd25=1.33;//25%
+float Hy_sd27=1.37;//27%
+float Hy_sd30=1.43;//30%
+float Hy_sd32=1.47;//32%
+float Hy_sd35=1.54;//35%
+float Hy_sd37=1.59;//37%
+float Hy_sd40=1.67;//40%      1 / 0.6 = 1.66
+
+
+unsigned char bdata Flag ;               //系统标志,flag为可位寻址对象
+
+sbit  Watch_Flag=  Flag^0;          //用于灯屏提示后，进入记录m1程序的循环
+sbit  Wal_Flag  =  Flag^1;          //左停机标志   ,只是为了提高代码运行效率，若果没有该标志，停机后继续扫描滑移率，判断停车
+sbit  War_Flag  =  Flag^2;          //右停机标志
+sbit  Led_Flag  =  Flag^3;          //程序处于检测还是待机状态标志，待机状态是高电平
+sbit  INT0_Flag   =Flag^4;          //左脉冲下降沿到来触发中断标志
+sbit  INT1_Flag = Flag^5;           //右脉冲下降沿到来触发中断标志  
+sbit  IE_Flag = Flag^6 ;           //避免重复开外部中断  
+sbit  YiChuBaoHu_Flag = Flag^7 ;		 //	定时器作为待机状态时，不进行溢出保护功能
+
+
+unsigned  long int  LineL=0,LineR=0;	//记录24个脉冲数组下标变量	
+unsigned  char  Mj=0;				//6/24脉冲选择
+
+
+unsigned  long int MC_Led_L=0;	  //脉冲指示灯 左
+unsigned  long int MC_Led_R=0;	  //脉冲指示灯 右
+
+unsigned  int   L_Pulse_Temp[3]=
+{
+    0
+};  //当前脉冲数值 左
+unsigned  int   R_Pulse_Temp[3]=
+{
+    0
+};  //当前脉冲数值 右
+unsigned  char  L_Pulse_count=0;	 //当前脉冲值 数组下标左
+unsigned  char  R_Pulse_count=0;	 //当前脉冲值 数组下标右
+
+union						 //联合体用于存放第三滚速度值
+{									 
+    unsigned int  i_Data;
+    unsigned char b_Data[2];
+}u_int;
+
+union						 //联合体用于存放推移时间
+{									 
+    unsigned int  t_Data;
+    unsigned char c_Data[2];
+}Time;
+
+unsigned char Count_Flag=0;	 //延迟一段时间松开 下位机停止电机信号
+
+void F_m0L(void);    //记录左脉冲初值 并且判断异常函数
+void F_m0R(void);    //记录右脉冲初值 并且判断异常函数
+
+void CompareL(void); //左滚筒比较滑移率停机函数
+void CompareR(void); //右滚筒比较滑移率停机函数
+
+void main( void ) 
+{  	   
+    unsigned char i=0;
+    SWL_out = High;  //Low;
+    SWR_out = High;  // Low;
+    SW_Led =High;
+    Watch_Flag = 0; 
+    //定时器、外部中断初始化 
+    TMOD = 0x11; 	  //定时器工作在方式1 ，为16位的定时器/计数器
+    IE=0X92;  		  //开定时器T1 作为待机信号使用
+    TH0=0X00;		
+    TL0=0X00; 		  
+    TCON=0X15;  	  //定时器开T0，外部中断0和1设置成下降沿触发
+    
+    Led_Flag=1;	  //待机/检测状态判断
+    INT0_Flag =0; //外部中断触发
+    INT1_Flag =0; //外部中断触发    LineR_Flag=0;  //该标志为1时进入异常判断，初值为0
+    Wal_Flag=0;
+    War_Flag=0;
+    if(MC_Xflag==1)		   //   6/24脉冲选择
+    {
+        Mj=24;
+    }
+    else 
+    { 
+        Mj=6;
+    } 
+    Hy_sd=Hy_sd30; 
+    if((HY_tx1==0)&&(HY_tx2==1)&&(HY_tx3==1)&&(HY_tx4==1))    		 //从左到右 跳第1个跳线		多段滑移率选择
+    {
+        Hy_sd=Hy_sd20;
+    }                 
+    else if((HY_tx1==1)&&(HY_tx2==0)&&(HY_tx3==1)&&(HY_tx4==1))    		//从左到右 跳第2个跳线
+    { 
+        Hy_sd=Hy_sd25;	
+    }  
+    else if((HY_tx1==1)&&(HY_tx2==1)&&(HY_tx3==0)&&(HY_tx4==1))     		//从左到右 跳第3个跳线
+    {
+        Hy_sd=Hy_sd27;
+    }  
+    else if((HY_tx1==1)&&(HY_tx2==1)&&(HY_tx3==1)&&(HY_tx4==0))       	//从左到右 跳第4个跳线
+    {
+        Hy_sd=Hy_sd32;  
+        
+    } 
+    else if((HY_tx1==0)&&(HY_tx2==0)&&(HY_tx3==1)&&(HY_tx4==1))         //从左到右 跳第1、2两个跳线
+    {
+        Hy_sd=Hy_sd35;  
+        
+    }
+    else if((HY_tx1==1)&&(HY_tx2==0)&&(HY_tx3==0)&&(HY_tx4==1))         //从左到右 跳第2、3两个跳线
+    {
+        Hy_sd=Hy_sd37;     
+    }
+    else if((HY_tx1==1)&&(HY_tx2==1)&&(HY_tx3==0)&&(HY_tx4==0))        //从左到右 跳第3、4两个跳线
+    {
+        Hy_sd=Hy_sd40;  
+    }  
+    while(1)
+    {	
+        LineL=LineR=0;
+        IE_Flag=0;
+        TF1=TF0=0;			  //  定时器溢出标志清零
+        YiChuBaoHu_Flag=0;
+        War_Flag=0;
+        Wal_Flag=0;
+        Watch_Flag=0;
+        Led_Flag=1;
+        while(!SW_cai )
+        {  	
+            if(IE_Flag==0)
+            { 
+                IE_Flag=1;
+                TH0=0X00;					     //清0定时器T0，T1，开启T0，T1
+                TL0=0X00;
+                TH1=0X00;					     //清0定时器T0，T1，开启T0，T1
+                TL1=0X00;
+                TR1=1;
+                IE=0X9F;						//进入测试以后，开T0，T1,中断，开外部中断1
+                Led_Flag=0;
+                Watch_Flag=1;
+                YiChuBaoHu_Flag=1;
+            } 	
+            //此标志为1时才可以进行异常比较停机	
+            if((INT1_Flag==1)&&(!SW_cai))
+            { 
+                F_m0R();//采集标准速度
+            }		
+            if((INT0_Flag==1)&&(!SW_cai))
+            { 
+                F_m0L();//采集标准速度
+            }
+        } 
+        while (Watch_Flag)
+        {	
+            if((INT0_Flag==1)&&(Wal_Flag==0))
+            {
+                CompareL();
+            } 
+            
+            if((INT1_Flag==1)&&((War_Flag==0)))
+            {
+                CompareR();
+            }
+            if((War_Flag==1)&&(Wal_Flag==1))
+            {
+                Watch_Flag=0;
+            }            
+        }
+        if( !Led_Flag )			//进入待机状态
+        {
+            Led_Flag = 1;						   
+            IE = 0x92;			//开 T0中断，关外部中断   查询看定时器0此种用法 是否有问题？
+            TR0 = 1; 				//开定时器0
+            Counter_70ms = 0;	
+			Count_Flag=0; 
+            YiChuBaoHu_Flag=0;
+        }
+    } 
+}
+
+//定时器0的中断函数
+void Timer0_Interrupt( void ) interrupt 1    //待机状态每隔3秒钟给上位机发脉冲
+{	
+    TF0 = 0;
+    TH0 = 0x00;
+    TL0 = 0x00;
+    // 定时器溢出标志软件清零
+    if((YiChuBaoHu_Flag==0))//待机状态
+    {    
+        Counter_70ms++;
+        Count_Flag++;
+        if( Counter_70ms >= 30)
+        {
+            Counter_70ms=0;
+            SW_Led = !SW_Led;//Led状态灯闪烁
+        }
+        if(Count_Flag>=115)//200?
+        {
+            Count_Flag=0;
+            SWL_out=1;//待机状态，松开制动器
+            SWR_out=1;
+        }		
+    }
+    else//判断初速度异常、判断滑移率
+    {
+        EX0=0;
+        INT0_Flag=1;
+        Wal_Flag=1; 
+        SWL_out=0;
+    }	
+}
+
+void Timer1_Interrupt( void ) interrupt 3    //待机状态每隔3秒钟给上位机发脉冲
+{	
+    TF1 = 0;
+    TH1 = 0x00;
+    TL1 = 0x00;
+    // 定时器溢出标志软件清零
+    EX1=0;
+    INT1_Flag=1;
+    War_Flag=1;
+    SWR_out=0;//右停机
+}
+
+//外部中断1，右脉冲的中断函数  外部脉冲下降沿触发，计数器T0从0开始计数   
+void INT1_Interrupt( void ) interrupt 2
+{
+    EX1=0;
+    u_int.b_Data[0] = TH1;
+    u_int.b_Data[1] = TL1;
+    TH1=0x00;
+    TL1=0x00;
+    INT1_Flag=1;
+    EX1=1;  
+}
+
+void INT0_Interrupt( void ) interrupt 0
+{
+    EX0=0;
+    Time.c_Data[0] = TH0;
+    Time.c_Data[1] = TL0;
+    TH0=0x00;
+    TL0=0x00;
+    INT0_Flag=1;
+    EX0=1;
+}
+void F_m0R(void)						
+{	
+    INT1_Flag=0; 								
+    R_Pulse_Temp[R_Pulse_count]=u_int.i_Data; 			
+	LineR++;					
+    if(LineR>=24)		 
+    {
+        if((R_Pulse_Temp[0]>11000)&&(R_Pulse_Temp[1]>11000)&&(R_Pulse_Temp[2]>11000))
+        {
+            SWR_out=0;//右停机
+            Watch_Flag=0;//为0不判断滑移率
+            INT1_Flag=0;
+        }
+    }	   
+    MC_Led_R++;  
+    if(MC_Led_R>=200)
+    {	      
+        MC_Led_R=0;
+        SW_MOR=!SW_MOR;
+    }
+    R_Pulse_count++;
+    if(R_Pulse_count>=3)
+    {
+        R_Pulse_count=0; 
+    }
+}
+
+void F_m0L(void)						
+{	
+    INT0_Flag=0;
+    L_Pulse_Temp[L_Pulse_count]=Time.t_Data;  
+	LineL++;	
+    if(LineL>=24)		 
+    {
+        if((L_Pulse_Temp[0]>11000)&&(L_Pulse_Temp[1]>11000)&&(L_Pulse_Temp[2]>11000))
+        {
+            SWL_out=0;
+            SWR_out=0;//右停机
+            Watch_Flag=0;//为0不判断滑移率
+            INT1_Flag=0;
+            INT0_Flag=0;
+        }
+    }
+    MC_Led_L++;   
+    if(MC_Led_L>=200)
+    {	      
+        MC_Led_L=0;
+        SW_MOL=!SW_MOL;
+    }
+    L_Pulse_count++;
+    if(L_Pulse_count>=3)
+    {
+        L_Pulse_count=0; 
+    }
+}
+
+
+void CompareR(void)    //左滚筒比较速度比停机函数
+{
+    INT1_Flag=0; 									
+    R_Pulse_Temp[R_Pulse_count]=u_int.i_Data;	
+    if(((R_Pulse_Temp[0]>=14000)&&(R_Pulse_Temp[1]>=14000)&&(R_Pulse_Temp[2]>=14000)))//  滑移率30%对应 时间比1.43  滑移率10% 对应时间比1.11 
+    {     
+        SWR_out=0;
+        EX1=0;
+        War_Flag=1; 
+    }
+    R_Pulse_count++;
+    if(R_Pulse_count>=3)
+    {
+        R_Pulse_count=0; 
+    }   		  
+}
+
+
+void CompareL(void)    //左滚筒比较速度比停机函数
+{
+    unsigned char i=0;
+    INT0_Flag=0;
+    L_Pulse_Temp[L_Pulse_count]=Time.t_Data;	
+    if(((L_Pulse_Temp[0]>=14000)&&(L_Pulse_Temp[1]>=14000)&&(L_Pulse_Temp[2]>=14000)))//  滑移率30%对应 时间比1.43  滑移率10% 对应时间比1.11 
+    { 
+        SWL_out=0;					 //如果滑移率停车状态，停止制动器；否则不动作
+        Wal_Flag=1;
+        EX0=0;
+    }
+    L_Pulse_count++;
+    if(L_Pulse_count>=3)
+    {
+        L_Pulse_count=0; 
+    }  
+}
